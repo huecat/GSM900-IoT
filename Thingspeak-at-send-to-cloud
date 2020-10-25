@@ -1,0 +1,199 @@
+/*
+
+  .##.....##.##.....##.########.....######.....###....########
+  .##.....##.##.....##.##..........##....##...##.##......##...
+  .##.....##.##.....##.##..........##........##...##.....##...
+  .#########.##.....##.######......##.......##.....##....##...
+  .##.....##.##.....##.##..........##.......#########....##...
+  .##.....##.##.....##.##..........##....##.##.....##....##...
+  .##.....##..#######..########.....######..##.....##....##...
+
+https://huecat.es/conectar-placa-sim-gsm900-con-arduino-ide/
+
+ * */
+#include <SoftwareSerial.h>
+SoftwareSerial ATGSM(7, 8);
+
+void setup()
+{
+  ATGSM.begin(9600);
+  Serial.begin(115200);
+
+  Serial.println(" >>> ");
+
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  //Turning modem On / Encender el módem
+  pinMode(9, OUTPUT);
+  digitalWrite(9, HIGH);
+  delay (999);
+  digitalWrite(9, LOW);
+
+  Serial.println(".##.....##.##.....##.########.....######.....###....########\n.##.....##.##.....##.##..........##....##...##.##......##...\n.##.....##.##.....##.##..........##........##...##.....##...\n.#########.##.....##.######......##.......##.....##....##...\n.##.....##.##.....##.##..........##.......#########....##...\n.##.....##.##.....##.##..........##....##.##.....##....##...\n.##.....##..#######..########.....######..##.....##....##...");
+
+}
+
+float  temp = 33;
+float humi = 50;
+
+
+
+// RECUERDA: todos los comandos AT se pueden encontrar en la documentación de SIM900
+
+void loop()
+{
+
+
+  Serial.println ("--------------- ------------- ------------------- ");
+  Serial.println ("------------------- Iniciando ciclo -------------");
+  Serial.println (" ------------- --------------- ------------------- ");
+
+
+
+  if (ATGSM.available())    Serial.write(ATGSM.read());
+
+  //Calcula temperaturas y humedades con función random
+  temp = temp + (0.1 * random(-5, 5));
+  humi = humi + (0.1 * random(-5, 5));
+  if (temp < 0) temp = 0.1; if (temp > 38) temp = 38;
+  if (humi <= 10) humi++;
+
+  Serial.print ("temp: "); Serial.print (temp);
+  Serial.print ("humi: "); Serial.println (humi);
+
+
+  mqttZentinella(temp, humi); //La función mqttZentinela enviará los datos que se le pasen en el argumento, en este caso, temperatura y humedad
+
+
+}
+
+void mqttZentinella(float a_temperatura, float b_humedad)
+{
+  String temperatura = String (a_temperatura);
+  String humedad = String (b_humedad);
+  
+  Serial.println (" --> --> --> mqttZentinella <-- <-- <-- ");
+
+  unsigned long startCycleMillis = millis();
+
+  //Para obtener más información, lea la documentación de SIM900
+  ATGSM.println("AT");
+  delay(500);
+
+  // CÓDIGO PIN
+  Serial.println("Verificación del código PIN");
+  ATGSM.println("AT+CPIN?"); //
+
+  delay(500);
+
+  // REGÍSTRESE EN LA WEB
+  Serial.println("Registrando");
+  ATGSM.println("AT+CREG?");
+  delay(500);
+
+  // LLAMADA DE NOMBRE
+  Serial.println("AT: AT+CGATT?");
+  ATGSM.println("AT+CGATT?");
+  delay(500);
+
+  // CERRAR LA CONEXIÓN
+  Serial.println("Cerrando conexión");
+  ATGSM.println("AT+CIPSHUT");
+  delay(1000);
+  Serial.println("");
+  Serial.println(" >> ESTADO DE CONEXIÓN  >>  ");
+
+  ATGSM.println("AT+CIPSTATUS");
+  delay(2000);
+
+  // INICIAR CONEXIÓN MULTI IP
+  ATGSM.println("AT+CIPMUX=0");
+  delay(2000);
+
+  showSerialData();
+
+  Serial.print("=> APN ");
+  ATGSM.println("AT+CSTT=\"internet\"");
+  // IMPORTANTE: internet este es el nombre APN de mi red
+  // Posiblemente tengas que cambiar esto porque cada red tiene diferentes de APN, además que alguas usuario y contraseña
+
+  delay(1000);
+
+  showSerialData();
+  Serial.print("Estado de la conexión GPRS: ");
+  ATGSM.println("AT+CIICR"); // Iniciar una conexión inalámbrica
+  delay(3000);
+
+  showSerialData();
+  Serial.print("Dirección IP local: ");
+  ATGSM.println("AT+CIFSR"); // Establecer una dirección IP local
+  delay(2000);
+
+  showSerialData();
+
+  ATGSM.println("AT+CIPSPRT=0");
+  delay(3000);
+
+  showSerialData();
+
+  Serial.println("CREANDO UNA CONEXIÓN TCP: ");
+  ATGSM.println("AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",\"80\""); //Iniciar conexión
+  delay(6000);
+
+  showSerialData();
+
+  Serial.print(" > ENVÍO DE DATOS A TRAVÉS DE UNA CONEXIÓN TCP >");
+  ATGSM.println("AT+CIPSEND");//begin send data to remote server
+  delay(4000);
+  showSerialData();
+
+
+  // ---------------------
+  // Cadena para los campos de Thingspeak, necesita crear una nueva cadena para cada dato + flotante al comienzo del código
+
+
+
+
+  String str = "GET http://api.thingspeak.com/update?api_key=SLXXZIH8IBWUGJHX&field1=" + temperatura + "&field2=" + humedad;
+  // --------------------- //
+
+
+
+  ATGSM.println(str);
+  delay(4000);
+  showSerialData();
+
+  ATGSM.println((char)26); // response from server, in that case it will be entry nbr
+
+  delay(5000);
+  //time for response , ATTN: it depends form networ status (signal power, signal quality)
+
+  ATGSM.println();
+
+  showSerialData();
+
+  ATGSM.println("AT+CIPSHUT");// cerrando la conexión
+  delay(100);
+  showSerialData();
+
+  Serial.println("");
+  Serial.print("Tiempo del ciclo mqttZentinella: ");
+  Serial.print((millis() - startCycleMillis) / 1000);
+  Serial.println(" segundos");
+
+}
+void showSerialData()
+{
+  while (ATGSM.available() != 0)
+    Serial.write(ATGSM.read());
+  /*
+    String buffer = "";
+    while (ATGSM.available() ) {
+      char c = ATGSM.read();
+      buffer += c;
+    }
+      return buffer;
+
+  */
+
+}
